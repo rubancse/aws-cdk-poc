@@ -1,0 +1,157 @@
+Here's how you can create an AWS Glue Job Definition using Python and run it using CDK:
+
+### 1. Create AWS Glue Job Definition (Python)
+
+This example creates a simple JSON Lines ETL job definition for converting JSON input into CSV output.
+
+```python
+import json
+import os
+from awslambda import Function
+from gluon import (
+    Cluster,
+    glue,
+    (
+        GlueClusterJobDefinition,
+        JobInputs,
+        JobOutputs,
+        JobTransformers,
+        JobTransforms,
+        JobTransformer,
+    ),
+)
+
+# Path to the Lambda function (or your custom logic)
+LAMBDA_FUNCTION_NAME = "your-lambda-function"
+LAMBDA_FUNCTION_URL = Function.uname(LAMBDA_FUNCTION_NAME)
+
+region_name = os.getenv("AWS_REGION") or "us-west-2"
+
+def lambda_handler(event, context):
+    if event["code"]:
+        return {
+            'statusCode': 200,
+            'body': json.dumps({
+                'result': True,
+                'message': f"Processing request for {event['code']} succeeded."
+            }),
+        }
+    raise Exception("Invalid code")
+
+# Create a Glue Cluster
+cluster = Cluster(region_name=region_name, stack_name="elt-stack")
+
+# Define the job inputs (JSON lines from S3)
+inputs = JobInputs(
+    paths=[f"s3://{region_name}/input Kraken/kraken.jsonl"],  # Replace with your bucket and path
+)
+
+# Define the output (CSV in S3)
+outputs = JobOutputs(
+    paths=[f"s3://{region_name}/output/kraken.csv"],  # Replace with your bucket and path
+    keyPrefix="output",  # Bucket key prefix for CSV files
+)
+
+# Define the transformer to convert JSON to CSV
+transformers = [
+    JobTransformer(
+        type="json",
+        properties={
+            "inputColumns": ["name"],
+            "outputColumns": ["name", "address", "balance"],
+            "convertHeaders": True,
+        },
+    ),
+]
+
+# Attach IAM policy to the job definition
+job_definition = GlueClusterJobDefinition(
+    cluster=cluster,
+    code=f"""
+import json
+from gluon import Glue
+
+Glue.start()
+{s3_bucket_arn}
+s3_bucketName = s3_bucket_arn.split('/')[-1]
+if os.getenv('GluueRoleAssumed'):
+    role_arn = os.getenv('GluueRoleAssumed')
+else:
+    role_arn = "arn:aws:iam::123456789012"
+    role_arn = role_arn.replace('123456789012', your-IAM-role ARN)
+
+Glue role_arn
+s3_bucketName= s3_bucket_arn.split('/')[-1]
+if s3_bucketName is not None:
+    Glue.put records from s3 to Redshift or other destinations as needed
+
+Glue.stop()
+    """,
+    properties={
+        "JobInputs": inputs,
+        "JobOutputs": outputs,
+        "JobTransformers": transformers,
+        " IAM roles" : [
+            "arn:..",  # S3 read
+            "arn:..",  # Glue task
+            "arn:..",  # CSV writer
+        ],
+    },
+)
+
+# Attach IAM policy to the job definition
+job_definition.iam_attached = True
+
+# Start the cluster and attach the job definition
+cluster.start()
+job_definition.attachments.append(cluster)
+```
+
+### 2. CDK Code to Run the Task
+
+This example uses CDK to create a task that injects the Job Definition and runs it.
+
+```python
+import gluon
+from gluon import (
+    Cluster,
+    glue,
+    Command,
+)
+
+region_name = os.getenv("AWS_REGION") or "us-west-2"
+
+def main():
+    cluster = Cluster(region_name=region_name, stack_name="elt-task")
+    
+    # Create a task to inject the Job Definition and run it
+    task = Command(
+        args=[
+            "--inputs",
+            "'your-inputs.jsonl'",
+        ],
+        env=dict(GLUE_JOB_DEF_ARN=f"arn:..", GLUE_JOB_ARN=f"arn:.."),
+        cluster=cluster,
+    )
+
+    # Run the task (replace your-inputs.jsonl with actual input JSON lines)
+    task.execute()
+
+if __name__ == "__main__":
+    main()
+```
+
+### Notes:
+
+1. **Dependencies**:
+   - AWS Glue must be enabled in your AWS account.
+
+2. **Customization**:
+   - Replace `"your-lambda-function"` with the name of your Lambda function.
+   - Update the input paths, output paths, and transformer properties according to your needs.
+
+3. **Testing**:
+   - Before running on production, test this code with sample input data to ensure everything works correctly.
+
+4. **Runtime Environment**:
+   - Replace `your-inputs.jsonl` with actual JSON lines or a valid Lambda function call.
